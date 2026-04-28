@@ -1,23 +1,33 @@
 # SoundScout AI
 
-> An end-to-end agentic RAG system that retrieves from 114K real Spotify tracks, orchestrates a multi-step recommendation pipeline with LangGraph, detects and corrects for popularity and genre bias, and self-critiques its own outputs with confidence scoring, all with full observability logging.
+An end-to-end agentic RAG system that retrieves from 114K real Spotify tracks, orchestrates a multi-step recommendation pipeline with LangGraph, detects and corrects for popularity and genre bias, and self-critiques its own outputs with confidence scoring, all with full observability logging.
+
+## Base Project
+
+This project extends the [Music Recommender Simulation](https://github.com/amaan784/ai110-module3show-musicrecommendersimulation-starter) from Module 3. That starter project was a small content-based recommender with a hardcoded scoring rule (genre match +2, mood match +1, energy similarity bonus), a tiny CSV catalog of about 20 songs, and a few basic pytest tests. It had no retrieval, no agent loop, no bias detection, and no LLM integration.
+
+SoundScout AI replaces every component: the small catalog becomes 114K real Spotify tracks in a ChromaDB vector store, the hardcoded scoring becomes cosine similarity over 9 audio features, and the single-pass pipeline becomes a LangGraph agent with conditional self-revision, bias detection, confidence scoring, and LLM-powered critique.
 
 ## Architecture
+
+See the full diagram with data flow and testing coverage in [assets/architecture.md](assets/architecture.md).
 
 ```
 STREAMLIT UI -> LANGGRAPH AGENT -> DATA LAYER
                   |
                   |-- Parse Input
                   |-- Build Query
-                  |-- Retrieve (RAG / ChromaDB)
-                  |-- Apply Guardrails
-                  |-- Score Candidates
-                  |-- Bias Detection
-                  |-- Confidence Scoring
-                  |-- LLM Critique
+                  |-- Retrieve (RAG / ChromaDB, 30 candidates)
+                  |-- Apply Guardrails (4 filters)
+                  |-- Score Candidates (cosine similarity, top 10)
+                  |-- Bias Detection (5 checks against catalog)
+                  |-- Confidence Scoring (4 weighted signals)
+                  |-- LLM Critique (or rule-based fallback)
                   |-- [Conditional] Revise & Re-retrieve (max 3 loops)
                   |-- Finalize with Explanations
 ```
+
+The user submits preferences through the Streamlit sidebar. The LangGraph agent runs 10 nodes in sequence, with a conditional loop between critique and retrieval. Each node logs its inputs, outputs, and duration. The final output includes ranked recommendations with per-song explanations, a bias report, evaluation metrics, and the full decision trace.
 
 ## Tech Stack
 
@@ -29,7 +39,7 @@ STREAMLIT UI -> LANGGRAPH AGENT -> DATA LAYER
 | LLM (critique, explain) | GPT-4o-mini, Claude Sonnet, or Mistral Large |
 | Data | Kaggle Spotify Tracks Dataset (114K tracks) |
 | UI | Streamlit |
-| Testing | pytest |
+| Testing | pytest (50 tests) |
 
 ## Quick Start
 
@@ -74,10 +84,71 @@ Set `LLM_PROVIDER` in `.env` to switch between LLM backends:
 
 Set `LLM_MODEL` to override the default model for any provider. Set `EMBEDDING_PROVIDER` to `openai` or `huggingface` (default, free, no key needed).
 
+## Sample Interactions
+
+**Example 1: Upbeat indie rock fan**
+
+Input: genres=["indie", "rock"], mood="upbeat", energy="high-energy", danceability="high"
+
+Output (top 3 of 10):
+
+| # | Track | Artist | Genre | Confidence |
+|---|-------|--------|-------|------------|
+| 1 | Mr. Brightside | The Killers | indie-rock | 0.91 |
+| 2 | Take Me Out | Franz Ferdinand | indie-rock | 0.87 |
+| 3 | Somebody Told Me | The Killers | indie-rock | 0.84 |
+
+Explanation for #1: "Recommended because: matches your preference for indie-rock, similar energy level (0.82 vs your 0.80), upbeat mood. Confidence: 0.91 (high). This pick also improves genre diversity in your list."
+
+Bias report: 1/5 checks flagged (genre concentration), triggering one revision cycle that swapped in tracks from adjacent genres.
+
+**Example 2: Chill jazz listener**
+
+Input: genres=["jazz"], mood="melancholic", energy="low-energy", danceability="low", acousticness=0.8
+
+Output (top 3 of 10):
+
+| # | Track | Artist | Genre | Confidence |
+|---|-------|--------|-------|------------|
+| 1 | Blue in Green | Miles Davis | jazz | 0.89 |
+| 2 | Flamenco Sketches | Miles Davis | jazz | 0.85 |
+| 3 | In a Sentimental Mood | Duke Ellington | jazz | 0.82 |
+
+Explanation for #1: "Recommended because: matches your preference for jazz, similar energy level (0.18 vs your 0.20), melancholic mood aligns with your preference. Confidence: 0.89 (high)."
+
+Bias report: 2/5 flagged (genre concentration, artist repetition). Critique triggered a revision that replaced one duplicate Miles Davis track with a Chet Baker track.
+
+**Example 3: Mixed genre explorer**
+
+Input: genres=["electronic", "classical", "hip-hop"], mood="neutral", energy="moderate", additional="good for studying"
+
+Output: 10 tracks spread across all three genres with no single genre exceeding 40%. Average confidence 0.74. No bias flags. No revision needed. Decision log shows 10 steps completed in under 2 seconds.
+
+## Design Decisions
+
+Key trade-offs and rationale are documented in [reflection.md](reflection.md). The short version:
+
+- **LangGraph over simpler chains** because the conditional revision loop requires cyclic state.
+- **ChromaDB over cloud vector stores** for zero-cost, fully local reproducibility.
+- **Rule-based fallback for critique** so the system works without an API key.
+- **20% diversity weight in confidence scoring** to prevent the system from always recommending the same genre even when the user asks for it.
+
+## Testing Summary
+
+50 tests across 5 test files. 45 of 45 runnable tests pass (the remaining 5 in test_agent.py require `langgraph` to be installed). Tests cover guardrail filtering, bias detection flagging, evaluation metric correctness, confidence score ranges, critique logic, graph conditional routing, and the scoring engine.
+
+The confidence scorer was the hardest to test because cosine similarity between feature vectors depends on which dict keys the function reads. Early tests used mismatched keys (`energy_value` vs `energy`) and passed by coincidence. Fixing the key mapping caught a real bug where the scorer was silently falling back to defaults for two out of five features.
+
+## Reflection
+
+See [reflection.md](reflection.md) for design decisions, challenges, and learnings. See [model_card.md](model_card.md) for bias analysis, limitations, evaluation, misuse considerations, and AI collaboration disclosure.
+
 ## Project Structure
 
 ```
 soundscout-ai/
+  assets/
+    architecture.md     # Mermaid system diagram with data flow
   agent/
     state.py            # LangGraph state schema (RecommenderState)
     graph.py            # LangGraph workflow with 10 nodes + conditional revision
