@@ -41,6 +41,7 @@ PROVIDER_DEFAULTS = {
     "openai": "gpt-4o-mini",
     "anthropic": "claude-sonnet-4-20250514",
     "mistral": "mistral-large-latest",
+    "gemini": "gemini-2.0-flash",
 }
 
 
@@ -54,6 +55,9 @@ def get_llm():
     elif LLM_PROVIDER == "mistral":
         from langchain_mistralai import ChatMistralAI
         return ChatMistralAI(model=model, temperature=0.1)
+    elif LLM_PROVIDER == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=model, temperature=0.1)
     else:
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(model=model, temperature=0.1)
