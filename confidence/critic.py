@@ -2,6 +2,7 @@
 
 import os
 import json
+import time
 from typing import Dict, Any, List, Optional
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
@@ -45,22 +46,26 @@ PROVIDER_DEFAULTS = {
 }
 
 
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "30"))
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
+
+
 def get_llm():
     """Return the configured LLM for critique."""
     model = LLM_MODEL or PROVIDER_DEFAULTS.get(LLM_PROVIDER, "gpt-4o-mini")
 
     if LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, temperature=0.1)
+        return ChatAnthropic(model=model, temperature=0.1, timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
     elif LLM_PROVIDER == "mistral":
         from langchain_mistralai import ChatMistralAI
-        return ChatMistralAI(model=model, temperature=0.1)
+        return ChatMistralAI(model=model, temperature=0.1, timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
     elif LLM_PROVIDER == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model, temperature=0.1)
+        return ChatGoogleGenerativeAI(model=model, temperature=0.1, timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
     else:
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, temperature=0.1)
+        return ChatOpenAI(model=model, temperature=0.1, request_timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
 
 
 def format_recommendations_for_critique(tracks: List[Dict[str, Any]]) -> str:
@@ -105,7 +110,15 @@ def critique_recommendations(
             confidence_scores=format_confidence_for_critique(tracks),
             bias_report=json.dumps(bias_report, indent=2, default=str),
         )
-        response = llm.invoke(prompt)
+        for attempt in range(LLM_MAX_RETRIES + 1):
+            try:
+                response = llm.invoke(prompt)
+                break
+            except Exception as retry_err:
+                if "rate" in str(retry_err).lower() and attempt < LLM_MAX_RETRIES:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
         content = response.content if hasattr(response, "content") else str(response)
 
         try:

@@ -88,6 +88,23 @@ st.markdown(
     }
     .stat-number { font-size: 2em; font-weight: 700; color: #e94560; }
     .stat-label { font-size: 0.9em; color: #8888a0; margin-top: 4px; }
+    .llm-banner {
+        background: linear-gradient(90deg, #0f3460 0%, #1a1a2e 100%);
+        border: 1px solid #e94560;
+        border-radius: 10px;
+        padding: 12px 20px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .llm-banner-left { display: flex; align-items: center; gap: 12px; }
+    .llm-dot-on { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; display: inline-block; animation: pulse 1.5s infinite; }
+    .llm-dot-off { width: 10px; height: 10px; border-radius: 50%; background: #666; display: inline-block; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .llm-label { color: #ddd; font-weight: 600; font-size: 0.95em; }
+    .llm-detail { color: #8888a0; font-size: 0.85em; }
+    .llm-mode { color: #e94560; font-weight: 700; font-size: 0.9em; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -95,6 +112,18 @@ st.markdown(
 
 st.markdown("# SoundScout AI")
 st.markdown("Find your next favorite tracks from 114K real Spotify songs using AI-powered recommendations with bias detection and self-critique.")
+
+llm_provider = os.getenv("LLM_PROVIDER", "openai")
+llm_model = os.getenv("LLM_MODEL", "") or {
+    "openai": "gpt-4o-mini", "anthropic": "claude-sonnet-4-20250514",
+    "mistral": "mistral-large-latest", "gemini": "gemini-2.0-flash",
+}.get(llm_provider, "gpt-4o-mini")
+has_api_key = bool(
+    os.getenv("OPENAI_API_KEY", "").strip()
+    or os.getenv("ANTHROPIC_API_KEY", "").strip()
+    or os.getenv("MISTRAL_API_KEY", "").strip()
+    or os.getenv("GOOGLE_API_KEY", "").strip()
+)
 
 with st.sidebar:
     st.markdown("### What do you want to hear?")
@@ -134,7 +163,8 @@ with st.sidebar:
             "Describe what you're looking for",
             placeholder="e.g., songs like Radiohead, atmospheric, good for late-night listening",
         )
-        use_llm_explanations = st.checkbox("Use LLM for explanations (slower)", value=False)
+        use_llm_explanations = st.checkbox("Use LLM for explanations", value=has_api_key)
+        skip_llm = st.checkbox("Disable LLM (rule-based only)", value=False)
 
     run_button = st.button("Get Recommendations", type="primary", width="stretch")
 
@@ -171,9 +201,52 @@ if run_button:
         "additional": additional,
     }
 
-    with st.spinner("Running recommendation pipeline..."):
-        os.environ["USE_LLM_EXPLANATIONS"] = str(use_llm_explanations).lower()
+    active_llm = not skip_llm and has_api_key
+    use_llm_exp = use_llm_explanations and active_llm
+
+    if active_llm:
+        dot_cls = "llm-dot-on"
+        mode_text = "Full AI Mode"
+        detail = f"{llm_provider.title()} / {llm_model}"
+        if use_llm_exp:
+            detail += " (critique + explanations)"
+        else:
+            detail += " (critique only, template explanations)"
+    else:
+        dot_cls = "llm-dot-off"
+        mode_text = "Rule-Based Mode"
+        detail = "No LLM calls. Using scoring rules and template explanations."
+
+    st.markdown(
+        f'<div class="llm-banner">'
+        f'<div class="llm-banner-left">'
+        f'<span class="{dot_cls}"></span>'
+        f'<span class="llm-label">AI Status</span>'
+        f'<span class="llm-detail">{detail}</span>'
+        f'</div>'
+        f'<span class="llm-mode">{mode_text}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    os.environ["USE_LLM_EXPLANATIONS"] = str(use_llm_exp).lower()
+    if skip_llm:
+        os.environ["LLM_PROVIDER"] = "disabled"
+
+    status_container = st.empty()
+    with status_container.status("Running agentic pipeline...", expanded=True) as status:
+        st.write("Parsing preferences...")
         result = run_recommendation_pipeline(user_preferences)
+        if not result.get("error"):
+            log = result.get("decision_log", [])
+            for entry in log:
+                st.write(f"{entry.get('step', '').replace('_', ' ').title()}: {entry.get('output_summary', '')}")
+            status.update(label="Pipeline complete", state="complete", expanded=False)
+        else:
+            status.update(label="Pipeline failed", state="error", expanded=True)
+
+    if skip_llm:
+        os.environ["LLM_PROVIDER"] = llm_provider
 
     if result.get("error"):
         st.error(f"Pipeline error: {result['error']}")
@@ -182,7 +255,7 @@ if run_button:
         revision_count = result.get("revision_count", 0)
 
         if revision_count > 0:
-            st.warning(f"The agent revised its recommendations {revision_count} time(s) after self-critique.")
+            st.info(f"The agent self-critiqued and revised its recommendations {revision_count} time(s) using {llm_provider.title()} {llm_model}.")
 
         st.markdown(f"### Your Top {len(final_recs)} Tracks")
 
