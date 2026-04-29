@@ -36,7 +36,7 @@ The user submits preferences through the Streamlit sidebar. The LangGraph agent 
 | Agent Orchestration | LangGraph |
 | RAG / Retrieval | LangChain + ChromaDB |
 | Embeddings | HuggingFace `all-MiniLM-L6-v2` (default) or OpenAI |
-| LLM (critique, explain) | GPT-4o-mini, Claude Sonnet, or Mistral Large |
+| LLM (critique, explain) | GPT-4o-mini, Claude Sonnet, Mistral Large, or Gemini 2.0 Flash |
 | Data | Kaggle Spotify Tracks Dataset (114K tracks) |
 | UI | Streamlit |
 | Testing | pytest (50 tests) |
@@ -98,8 +98,9 @@ Set `LLM_PROVIDER` in `.env` to switch between LLM backends:
 | Provider | Env Var | Default Model |
 |----------|---------|---------------|
 | OpenAI | `OPENAI_API_KEY` | gpt-4o-mini |
-| Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514 |
+| Anthropic | `ANTHROPIC_API_KEY` | claude-3-sonnet-20240229 |
 | Mistral | `MISTRAL_API_KEY` | mistral-large-latest |
+| Gemini | `GOOGLE_API_KEY` | gemini-2.0-flash |
 
 Set `LLM_MODEL` to override the default model for any provider. Set `EMBEDDING_PROVIDER` to `openai` or `huggingface` (default, free, no key needed).
 
