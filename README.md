@@ -43,9 +43,28 @@ The user submits preferences through the Streamlit sidebar. The LangGraph agent 
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Create a virtual environment (pick one)
+
+**Option A: pip + venv**
 ```bash
+python -m venv venv
+source venv/bin/activate        # Mac/Linux
+venv\Scripts\Activate           # Windows
 pip install -r requirements.txt
+```
+
+**Option B: conda**
+```bash
+conda create -n soundscout python=3.12 -y
+conda activate soundscout
+pip install -r requirements.txt
+```
+
+**Option C: pipenv**
+```bash
+pip install pipenv
+pipenv install -r requirements.txt
+pipenv shell
 ```
 
 ### 2. Set up environment
