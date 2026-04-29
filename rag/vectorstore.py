@@ -16,7 +16,11 @@ def get_embeddings():
         return OpenAIEmbeddings(model="text-embedding-3-small")
     else:
         from langchain_huggingface import HuggingFaceEmbeddings
-        return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        return HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"device": "cpu", "batch_size": 32}
+        )
 
 
 def load_vectorstore(persist_directory: str = CHROMA_DIR) -> Chroma:
