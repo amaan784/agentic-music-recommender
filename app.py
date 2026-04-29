@@ -13,14 +13,56 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("SoundScout AI")
-st.markdown("**Agentic Music Recommendation System** powered by RAG, LangGraph, bias detection, and self-critique.")
+st.markdown(
+    """
+    <style>
+    .song-card {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+        border-left: 4px solid #e94560;
+        color: #eee;
+    }
+    .song-title { font-size: 1.2em; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .song-artist { font-size: 1em; color: #a0a0b0; margin-bottom: 8px; }
+    .song-meta { font-size: 0.85em; color: #8888a0; }
+    .conf-high { color: #4ade80; font-weight: 700; }
+    .conf-mid { color: #facc15; font-weight: 700; }
+    .conf-low { color: #f87171; font-weight: 700; }
+    .explanation-box {
+        background: #0f3460;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-top: 10px;
+        font-size: 0.9em;
+        color: #ccd;
+        line-height: 1.5;
+    }
+    .feature-bar-label { display: inline-block; width: 110px; font-size: 0.85em; color: #aaa; }
+    .bias-ok { color: #4ade80; }
+    .bias-flag { color: #f87171; }
+    .stat-card {
+        background: #16213e;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+    }
+    .stat-number { font-size: 2em; font-weight: 700; color: #e94560; }
+    .stat-label { font-size: 0.9em; color: #8888a0; margin-top: 4px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown("# SoundScout AI")
+st.markdown("Find your next favorite tracks from 114K real Spotify songs using AI-powered recommendations with bias detection and self-critique.")
 
 with st.sidebar:
-    st.header("Your Music Preferences")
+    st.markdown("### What do you want to hear?")
 
     genres = st.multiselect(
-        "Preferred Genres",
+        "Genres",
         options=[
             "pop", "rock", "hip-hop", "r-n-b", "jazz", "classical", "electronic",
             "indie", "country", "latin", "metal", "folk", "blues", "soul",
@@ -36,7 +78,7 @@ with st.sidebar:
     )
 
     energy = st.select_slider(
-        "Energy Level",
+        "Energy",
         options=["low-energy", "moderate", "high-energy"],
         value="moderate",
     )
@@ -47,19 +89,38 @@ with st.sidebar:
         value="medium",
     )
 
-    st.divider()
-    st.subheader("Fine-tune (optional)")
+    with st.expander("Advanced settings"):
+        tempo = st.slider("Tempo", 0.0, 1.0, 0.5, 0.05)
+        acousticness = st.slider("Acousticness", 0.0, 1.0, 0.5, 0.05)
+        additional = st.text_area(
+            "Describe what you're looking for",
+            placeholder="e.g., songs like Radiohead, atmospheric, good for late-night listening",
+        )
+        use_llm_explanations = st.checkbox("Use LLM for explanations (slower)", value=False)
 
-    tempo = st.slider("Tempo Preference", 0.0, 1.0, 0.5, 0.05)
-    acousticness = st.slider("Acousticness", 0.0, 1.0, 0.5, 0.05)
-
-    additional = st.text_area(
-        "Additional preferences (free text)",
-        placeholder="e.g., 'songs like Radiohead, atmospheric, good for late-night listening'",
-    )
-
-    use_llm_explanations = st.checkbox("Use LLM for explanations (slower)", value=False)
     run_button = st.button("Get Recommendations", type="primary", width="stretch")
+
+
+def _conf_class(score):
+    if score >= 0.8:
+        return "conf-high"
+    elif score >= 0.6:
+        return "conf-mid"
+    return "conf-low"
+
+
+def _conf_label(score):
+    if score >= 0.8:
+        return "High"
+    elif score >= 0.6:
+        return "Medium"
+    return "Low"
+
+
+def _feature_bar(label, value):
+    pct = int(value * 100)
+    return f'<span class="feature-bar-label">{label}</span> <progress value="{pct}" max="100" style="width:60%;height:8px;"></progress> {pct}%'
+
 
 if run_button:
     user_preferences = {
@@ -80,46 +141,57 @@ if run_button:
         st.error(f"Pipeline error: {result['error']}")
     else:
         final_recs = result.get("final_recommendations", [])
+        revision_count = result.get("revision_count", 0)
 
-        st.header(f"Top {len(final_recs)} Recommendations")
+        if revision_count > 0:
+            st.warning(f"The agent revised its recommendations {revision_count} time(s) after self-critique.")
+
+        st.markdown(f"### Your Top {len(final_recs)} Tracks")
 
         for i, rec in enumerate(final_recs, 1):
             meta = rec.get("metadata", {})
             conf = rec.get("confidence", {})
             overall_conf = conf.get("overall_confidence", 0)
+            components = conf.get("components", {})
+            explanation = rec.get("explanation", "")
 
-            with st.container():
-                col1, col2, col3 = st.columns([4, 1, 1])
-                with col1:
-                    st.markdown(f"**{i}. {meta.get('track_name', 'Unknown')}** by {meta.get('artists', 'Unknown')}")
-                    st.caption(f"Genre: {meta.get('track_genre', 'unknown')} | Album: {meta.get('album_name', 'N/A')}")
-                with col2:
-                    st.metric("Confidence", f"{overall_conf:.2f}")
-                with col3:
-                    st.metric("Popularity", meta.get("popularity", "N/A"))
+            conf_cls = _conf_class(overall_conf)
+            conf_lbl = _conf_label(overall_conf)
 
-                explanation = rec.get("explanation", "")
-                if explanation:
-                    st.info(explanation)
+            card_html = f"""
+            <div class="song-card">
+                <div class="song-title">{i}. {meta.get('track_name', 'Unknown')}</div>
+                <div class="song-artist">{meta.get('artists', 'Unknown')}</div>
+                <div class="song-meta">
+                    {meta.get('track_genre', 'unknown').title()} &middot;
+                    {meta.get('album_name', '')} &middot;
+                    Popularity: {meta.get('popularity', 'N/A')} &middot;
+                    Confidence: <span class="{conf_cls}">{overall_conf:.0%} ({conf_lbl})</span>
+                </div>
+            """
+            if explanation:
+                card_html += f'<div class="explanation-box">{explanation}</div>'
+            card_html += "</div>"
 
-                with st.expander("Audio Features"):
-                    features = {
-                        "Energy": f"{meta.get('energy', 0):.2f}",
-                        "Valence": f"{meta.get('valence', 0):.2f}",
-                        "Danceability": f"{meta.get('danceability', 0):.2f}",
-                        "Tempo": f"{meta.get('tempo', 0):.2f}",
-                        "Acousticness": f"{meta.get('acousticness', 0):.2f}",
-                    }
-                    st.json(features)
+            st.markdown(card_html, unsafe_allow_html=True)
 
-                    components = conf.get("components", {})
-                    if components:
-                        st.markdown("**Confidence Breakdown:**")
-                        st.json(components)
+            with st.expander(f"Details for {meta.get('track_name', 'Track')}"):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.markdown("**Audio Profile**")
+                    for feat_name, feat_key in [("Energy", "energy"), ("Valence (Happiness)", "valence"), ("Danceability", "danceability"), ("Tempo", "tempo"), ("Acousticness", "acousticness")]:
+                        val = float(meta.get(feat_key, 0))
+                        st.markdown(_feature_bar(feat_name, val), unsafe_allow_html=True)
 
-                st.divider()
+                with col_b:
+                    st.markdown("**Why this confidence score?**")
+                    for comp_name, comp_key in [("Feature Match", "feature_match"), ("Retrieval Relevance", "retrieval_relevance"), ("Score Margin", "margin"), ("Diversity Boost", "bias_contribution")]:
+                        val = components.get(comp_key, 0)
+                        st.markdown(_feature_bar(comp_name, val), unsafe_allow_html=True)
 
-        st.header("Evaluation Report")
+        st.markdown("---")
+
+        st.markdown("### How Fair Are These Results?")
         bias_report = result.get("bias_report", {})
 
         if bias_report:
@@ -134,42 +206,56 @@ if run_button:
             report = generate_report(final_recs, catalog)
             display = format_report_for_display(report)
 
-            col1, col2 = st.columns(2)
+            quality = display["summary"].get("Overall Quality", "Unknown")
+            quality_colors = {"Excellent": "#4ade80", "Good": "#86efac", "Fair": "#facc15", "Poor": "#f87171"}
+            q_color = quality_colors.get(quality, "#aaa")
 
-            with col1:
-                st.subheader("Summary")
-                for key, val in display["summary"].items():
-                    st.metric(key, val)
+            col1, col2, col3, col4 = st.columns(4)
+            col1.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{q_color}">{quality}</div><div class="stat-label">Overall Quality</div></div>', unsafe_allow_html=True)
+            col2.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Diversity Score", "0")}</div><div class="stat-label">Genre Diversity</div></div>', unsafe_allow_html=True)
+            col3.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Novelty Score", "0")}</div><div class="stat-label">Novelty</div></div>', unsafe_allow_html=True)
+            col4.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Bias Flags", "0")}</div><div class="stat-label">Bias Flags</div></div>', unsafe_allow_html=True)
 
-            with col2:
-                st.subheader("Bias Checks")
-                bias_df = pd.DataFrame(display["bias_details"])
-                if not bias_df.empty:
-                    st.dataframe(bias_df, width="stretch")
+            st.markdown("")
+            for check in display.get("bias_details", []):
+                status = check.get("Status", "")
+                icon_cls = "bias-ok" if status == "OK" else "bias-flag"
+                icon = "PASS" if status == "OK" else "FLAG"
+                st.markdown(
+                    f'<span class="{icon_cls}" style="font-weight:700">[{icon}]</span> '
+                    f'**{check.get("Check", "")}**: {check.get("Detail", "")}',
+                    unsafe_allow_html=True,
+                )
 
-        st.header("Agent Decision Log")
+        st.markdown("---")
+
+        st.markdown("### Agent Decision Log")
         decision_log = result.get("decision_log", [])
 
         if decision_log:
-            with st.expander("View Full Decision Trace", expanded=False):
-                log_display = format_log_for_display(decision_log)
-                log_df = pd.DataFrame(log_display)
-                st.dataframe(log_df, width="stretch")
-
-            st.caption(
-                f"Total steps: {len(decision_log)} | "
-                f"Revisions: {result.get('revision_count', 0)}"
-            )
+            st.caption(f"{len(decision_log)} steps completed | {revision_count} revision(s)")
+            for entry in decision_log:
+                step = entry.get("step", "")
+                dur = entry.get("duration_ms", 0)
+                out = entry.get("output_summary", "")
+                notes = entry.get("notes", "")
+                with st.expander(f"{step} ({dur:.0f}ms)"):
+                    st.markdown(f"**Output:** {out}")
+                    if notes:
+                        st.markdown(f"**Notes:** {notes}")
 
 else:
-    st.info("Configure your preferences in the sidebar and click **Get Recommendations** to start.")
-
     try:
         data_path = os.path.join(os.path.dirname(__file__), "data", "tracks_clean.csv")
         df = pd.read_csv(data_path)
+
+        st.markdown("")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total Tracks", f"{len(df):,}")
-        col2.metric("Genres", df["track_genre"].nunique())
-        col3.metric("Artists", df["artists"].nunique())
+        col1.markdown(f'<div class="stat-card"><div class="stat-number">{len(df):,}</div><div class="stat-label">Tracks in Catalog</div></div>', unsafe_allow_html=True)
+        col2.markdown(f'<div class="stat-card"><div class="stat-number">{df["track_genre"].nunique()}</div><div class="stat-label">Genres</div></div>', unsafe_allow_html=True)
+        col3.markdown(f'<div class="stat-card"><div class="stat-number">{df["artists"].nunique():,}</div><div class="stat-label">Artists</div></div>', unsafe_allow_html=True)
+
+        st.markdown("")
+        st.markdown("Pick your genres, mood, and energy in the sidebar, then hit **Get Recommendations**.")
     except Exception:
-        st.caption("Data not yet loaded. Run `python data/prepare_data.py` first.")
+        st.info("Run `python data/prepare_data.py` first to build the track catalog.")
