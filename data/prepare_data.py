@@ -109,13 +109,20 @@ def get_embeddings():
         return OpenAIEmbeddings(model="text-embedding-3-small")
     else:
         from langchain_huggingface import HuggingFaceEmbeddings
-        return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        return HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"device": "cpu", "batch_size": 32}
+        )
 
 
 def build_vectorstore(documents: list, persist_directory: str = CHROMA_DIR):
     """Build and persist a ChromaDB collection."""
     embeddings = get_embeddings()
     print(f"Building ChromaDB with {len(documents)} documents...")
+
+    # Ensure directory exists
+    os.makedirs(persist_directory, exist_ok=True)
 
     batch_size = 5000
     vectorstore = None
@@ -128,6 +135,10 @@ def build_vectorstore(documents: list, persist_directory: str = CHROMA_DIR):
         else:
             vectorstore.add_documents(batch)
         print(f"  Indexed {min(i + batch_size, len(documents))}/{len(documents)} documents")
+
+    # Explicit persist for newer Chroma versions
+    if hasattr(vectorstore, 'persist'):
+        vectorstore.persist()
 
     print(f"ChromaDB persisted to {persist_directory}")
     return vectorstore
