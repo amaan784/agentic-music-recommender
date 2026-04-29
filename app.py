@@ -59,7 +59,7 @@ with st.sidebar:
     )
 
     use_llm_explanations = st.checkbox("Use LLM for explanations (slower)", value=False)
-    run_button = st.button("Get Recommendations", type="primary", use_container_width=True)
+    run_button = st.button("Get Recommendations", type="primary", width="stretch")
 
 if run_button:
     user_preferences = {
@@ -145,7 +145,7 @@ if run_button:
                 st.subheader("Bias Checks")
                 bias_df = pd.DataFrame(display["bias_details"])
                 if not bias_df.empty:
-                    st.dataframe(bias_df, use_container_width=True)
+                    st.dataframe(bias_df, width="stretch")
 
         st.header("Agent Decision Log")
         decision_log = result.get("decision_log", [])
@@ -154,7 +154,7 @@ if run_button:
             with st.expander("View Full Decision Trace", expanded=False):
                 log_display = format_log_for_display(decision_log)
                 log_df = pd.DataFrame(log_display)
-                st.dataframe(log_df, use_container_width=True)
+                st.dataframe(log_df, width="stretch")
 
             st.caption(
                 f"Total steps: {len(decision_log)} | "

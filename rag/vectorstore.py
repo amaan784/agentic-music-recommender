@@ -3,7 +3,7 @@
 import os
 from typing import List, Dict, Any, Optional
 
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 
 CHROMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chroma_db")
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "huggingface")
@@ -15,7 +15,7 @@ def get_embeddings():
         from langchain_openai import OpenAIEmbeddings
         return OpenAIEmbeddings(model="text-embedding-3-small")
     else:
-        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_huggingface import HuggingFaceEmbeddings
         return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 

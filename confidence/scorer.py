@@ -7,6 +7,21 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 AUDIO_FEATURES = ["danceability", "energy", "valence", "tempo", "acousticness"]
 
+STRING_TO_FLOAT = {
+    "low": 0.2, "medium": 0.5, "high": 0.8,
+    "low-energy": 0.2, "moderate": 0.5, "high-energy": 0.8,
+    "melancholic": 0.2, "neutral": 0.5, "upbeat": 0.8,
+}
+
+
+def _to_float(value, default=0.5):
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        return STRING_TO_FLOAT.get(value, default)
+    return default
+
+
 WEIGHTS = {
     "feature_match": 0.35,
     "retrieval_relevance": 0.25,
@@ -20,8 +35,8 @@ def compute_feature_match(
     user_preferences: Dict[str, Any],
 ) -> float:
     """Cosine similarity between track features and user preferences."""
-    track_vec = np.array([float(track_meta.get(f, 0.5)) for f in AUDIO_FEATURES]).reshape(1, -1)
-    pref_vec = np.array([float(user_preferences.get(f, 0.5)) for f in AUDIO_FEATURES]).reshape(1, -1)
+    track_vec = np.array([_to_float(track_meta.get(f, 0.5)) for f in AUDIO_FEATURES]).reshape(1, -1)
+    pref_vec = np.array([_to_float(user_preferences.get(f, 0.5)) for f in AUDIO_FEATURES]).reshape(1, -1)
 
     sim = cosine_similarity(track_vec, pref_vec)[0][0]
     return float(max(0.0, min(1.0, sim)))
