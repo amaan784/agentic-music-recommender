@@ -42,6 +42,41 @@ st.markdown(
     .feature-bar-label { display: inline-block; width: 110px; font-size: 0.85em; color: #aaa; }
     .bias-ok { color: #4ade80; }
     .bias-flag { color: #f87171; }
+    .bias-card {
+        background: #16213e;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+    .bias-card-icon {
+        font-size: 1.4em;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .bias-card-icon-ok { background: #0f3d1f; color: #4ade80; }
+    .bias-card-icon-flag { background: #3d0f0f; color: #f87171; }
+    .bias-card-name { font-weight: 600; color: #ddd; font-size: 0.95em; }
+    .bias-card-detail { color: #8888a0; font-size: 0.85em; margin-top: 2px; }
+    .step-card {
+        background: #16213e;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 8px;
+        border-left: 3px solid #e94560;
+    }
+    .step-header { display: flex; justify-content: space-between; align-items: center; }
+    .step-name { font-weight: 600; color: #ddd; font-size: 0.95em; }
+    .step-time { color: #8888a0; font-size: 0.8em; }
+    .step-output { color: #aab; font-size: 0.85em; margin-top: 6px; }
+    .step-notes { color: #667; font-size: 0.8em; margin-top: 4px; font-style: italic; }
     .stat-card {
         background: #16213e;
         border-radius: 10px;
@@ -219,11 +254,17 @@ if run_button:
             st.markdown("")
             for check in display.get("bias_details", []):
                 status = check.get("Status", "")
-                icon_cls = "bias-ok" if status == "OK" else "bias-flag"
-                icon = "PASS" if status == "OK" else "FLAG"
+                is_ok = status == "OK"
+                icon_cls = "bias-card-icon-ok" if is_ok else "bias-card-icon-flag"
+                icon_text = "OK" if is_ok else "!!"
+                name = check.get("Check", "").replace("_", " ").title()
+                detail = check.get("Detail", "")
                 st.markdown(
-                    f'<span class="{icon_cls}" style="font-weight:700">[{icon}]</span> '
-                    f'**{check.get("Check", "")}**: {check.get("Detail", "")}',
+                    f'<div class="bias-card">'
+                    f'<div class="bias-card-icon {icon_cls}">{icon_text}</div>'
+                    f'<div><div class="bias-card-name">{name}</div>'
+                    f'<div class="bias-card-detail">{detail}</div></div>'
+                    f'</div>',
                     unsafe_allow_html=True,
                 )
 
@@ -233,16 +274,33 @@ if run_button:
         decision_log = result.get("decision_log", [])
 
         if decision_log:
-            st.caption(f"{len(decision_log)} steps completed | {revision_count} revision(s)")
+            st.caption(f"{len(decision_log)} steps | {revision_count} revision(s)")
+
+            step_icons = {
+                "parse_input": "1", "build_query": "2", "retrieve": "3",
+                "apply_guardrails": "4", "score": "5", "check_bias": "6",
+                "compute_confidence": "7", "critique": "8",
+                "revise_weights": "R", "finalize": "F", "error": "X",
+            }
             for entry in decision_log:
                 step = entry.get("step", "")
                 dur = entry.get("duration_ms", 0)
                 out = entry.get("output_summary", "")
                 notes = entry.get("notes", "")
-                with st.expander(f"{step} ({dur:.0f}ms)"):
-                    st.markdown(f"**Output:** {out}")
-                    if notes:
-                        st.markdown(f"**Notes:** {notes}")
+                icon = step_icons.get(step, "?")
+                step_label = step.replace("_", " ").title()
+                notes_html = f'<div class="step-notes">{notes}</div>' if notes else ""
+                st.markdown(
+                    f'<div class="step-card">'
+                    f'<div class="step-header">'
+                    f'<span class="step-name">Step {icon}: {step_label}</span>'
+                    f'<span class="step-time">{dur:.0f}ms</span>'
+                    f'</div>'
+                    f'<div class="step-output">{out}</div>'
+                    f'{notes_html}'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
 else:
     try:
