@@ -6,9 +6,29 @@ load_dotenv()
 
 import streamlit as st
 import pandas as pd
+import re
 from agent.graph import run_recommendation_pipeline
-from agent.logger import format_log_for_display
 from evaluation.report_generator import generate_report, format_report_for_display
+
+@st.cache_data
+def load_catalog_stats():
+    """Load catalog stats with caching to avoid repeated CSV reads."""
+    try:
+        data_path = os.path.join(os.path.dirname(__file__), "data", "tracks_clean.csv")
+        df = pd.read_csv(data_path)
+        return {
+            "tracks": len(df),
+            "genres": df["track_genre"].nunique(),
+            "artists": df["artists"].nunique()
+        }
+    except Exception:
+        return None
+
+def validate_preferences(prefs):
+    """Validate user preferences before running pipeline."""
+    if not prefs.get("genres"):
+        return False, "Please select at least one genre"
+    return True, ""
 
 st.set_page_config(
     page_title="SoundScout AI",
@@ -209,7 +229,7 @@ st.markdown("Find your next favorite tracks from 114K real Spotify songs using A
 
 llm_provider = os.getenv("LLM_PROVIDER", "openai")
 llm_model = os.getenv("LLM_MODEL", "") or {
-    "openai": "gpt-4o-mini", "anthropic": "claude-sonnet-4-20250514",
+    "openai": "gpt-4o-mini", "anthropic": "claude-3-sonnet-20240229",
     "mistral": "mistral-large-latest", "gemini": "gemini-2.0-flash",
 }.get(llm_provider, "gpt-4o-mini")
 has_api_key = bool(
@@ -321,15 +341,19 @@ with st.sidebar:
 
     st.markdown("---")
 
-    try:
-        data_path = os.path.join(os.path.dirname(__file__), "data", "tracks_clean.csv")
-        df = pd.read_csv(data_path)
+    catalog_stats = load_catalog_stats()
+    if catalog_stats:
         stat_cols = st.columns(3)
-        stat_cols[0].metric("🎵 Tracks", f"{len(df):,}", delta=None)
-        stat_cols[1].metric("🎼 Genres", df["track_genre"].nunique(), delta=None)
-        stat_cols[2].metric("🎤 Artists", f"{df['artists'].nunique():,}", delta=None)
-    except Exception:
-        pass
+        stat_cols[0].metric("🎵 Tracks", f"{catalog_stats['tracks']:,}", delta=None)
+        stat_cols[1].metric("🎼 Genres", catalog_stats["genres"], delta=None)
+        stat_cols[2].metric("🎤 Artists", f"{catalog_stats['artists']:,}", delta=None)
+
+    # Store LLM config in session state to avoid race conditions
+    if "llm_config" not in st.session_state:
+        st.session_state.llm_config = {
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+        }
 
     st.markdown("---")
 
@@ -372,6 +396,14 @@ def _feature_bar(label, value):
 
 
 if run_button:
+    # Rate limiting: prevent spam clicks
+    current_time = pd.Timestamp.now()
+    last_run = st.session_state.get("last_run_time")
+    if last_run and (current_time - last_run).seconds < 2:
+        st.warning("⏳ Please wait a moment before running again")
+        st.stop()
+    st.session_state.last_run_time = current_time
+
     user_preferences = {
         "genres": genres,
         "mood": mood,
@@ -381,6 +413,12 @@ if run_button:
         "acousticness": acousticness,
         "additional": additional,
     }
+
+    # Validate input
+    is_valid, error_msg = validate_preferences(user_preferences)
+    if not is_valid:
+        st.error(f"⚠️ {error_msg}")
+        st.stop()
 
     active_llm = not skip_llm and has_api_key
     use_llm_exp = use_llm_explanations and active_llm
@@ -410,9 +448,17 @@ if run_button:
         unsafe_allow_html=True,
     )
 
-    os.environ["USE_LLM_EXPLANATIONS"] = str(use_llm_exp).lower()
-    if skip_llm:
-        os.environ["LLM_PROVIDER"] = "disabled"
+    # Store config in session state and set thread-local config for thread safety
+    st.session_state.use_llm_explanations = use_llm_exp
+    st.session_state.skip_llm = skip_llm
+
+    # Set thread-local LLM config to avoid race conditions
+    from confidence.critic import set_llm_config as set_critic_config
+    from confidence.explainer import set_llm_config as set_explainer_config
+
+    llm_for_run = "disabled" if skip_llm else llm_provider
+    set_critic_config(provider=llm_for_run, model=llm_model)
+    set_explainer_config(provider=llm_for_run, model=llm_model)
 
     pipeline_container = st.empty()
 
@@ -504,9 +550,6 @@ if run_button:
     # Clear the pipeline visualization
     pipeline_container.empty()
 
-    if skip_llm:
-        os.environ["LLM_PROVIDER"] = llm_provider
-
     # Extract intermediate data from decision log
     decision_log = result.get("decision_log", [])
     step_data = {entry.get("step", ""): entry for entry in decision_log}
@@ -593,12 +636,13 @@ if run_button:
                 retrieve_summary = retrieve_step.get("output_summary", "")
                 st.info(retrieve_summary)
 
-                if "candidates" in str(retrieve_summary).lower():
-                    try:
-                        num_candidates = int(''.join(filter(str.isdigit, retrieve_summary.split("candidates")[1].split(",")[0])))
-                    except (IndexError, ValueError):
-                        num_candidates = 30
-                    st.markdown(f"**Retrieved {num_candidates} candidate tracks** from 114K song catalog using HuggingFace embeddings (all-MiniLM-L6-v2)")
+                # Extract candidate count more robustly
+                num_candidates = 30  # default
+                if retrieve_summary:
+                    match = re.search(r'(\d+)\s+candidates', retrieve_summary)
+                    if match:
+                        num_candidates = int(match.group(1))
+                st.markdown(f"**Retrieved {num_candidates} candidate tracks** from 114K song catalog using HuggingFace embeddings (all-MiniLM-L6-v2)")
                 st.caption(f"Search time: {retrieve_step.get('duration_ms', 0):.0f}ms")
 
             # Guardrails section
@@ -752,17 +796,16 @@ if run_button:
                     )
 
 else:
-    try:
-        data_path = os.path.join(os.path.dirname(__file__), "data", "tracks_clean.csv")
-        df = pd.read_csv(data_path)
-
+    # Use cached catalog stats for initial display
+    stats = load_catalog_stats()
+    if stats:
         st.markdown("")
         col1, col2, col3 = st.columns(3)
-        col1.markdown(f'<div class="stat-card"><div class="stat-number">{len(df):,}</div><div class="stat-label">Tracks in Catalog</div></div>', unsafe_allow_html=True)
-        col2.markdown(f'<div class="stat-card"><div class="stat-number">{df["track_genre"].nunique()}</div><div class="stat-label">Genres</div></div>', unsafe_allow_html=True)
-        col3.markdown(f'<div class="stat-card"><div class="stat-number">{df["artists"].nunique():,}</div><div class="stat-label">Artists</div></div>', unsafe_allow_html=True)
+        col1.markdown(f'<div class="stat-card"><div class="stat-number">{stats["tracks"]:,}</div><div class="stat-label">Tracks in Catalog</div></div>', unsafe_allow_html=True)
+        col2.markdown(f'<div class="stat-card"><div class="stat-number">{stats["genres"]}</div><div class="stat-label">Genres</div></div>', unsafe_allow_html=True)
+        col3.markdown(f'<div class="stat-card"><div class="stat-number">{stats["artists"]:,}</div><div class="stat-label">Artists</div></div>', unsafe_allow_html=True)
 
         st.markdown("")
         st.markdown("Pick your genres, mood, and energy in the sidebar, then hit **Get Recommendations**.")
-    except Exception:
+    else:
         st.info("Run `python data/prepare_data.py` first to build the track catalog.")

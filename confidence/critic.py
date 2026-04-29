@@ -3,8 +3,27 @@
 import os
 import json
 import time
+import threading
 from typing import Dict, Any, List, Optional
 
+# Thread-local storage for per-request LLM config
+_thread_local = threading.local()
+
+def get_llm_config():
+    """Get LLM config from thread-local or fallback to env."""
+    return {
+        "provider": getattr(_thread_local, "llm_provider", None) or os.getenv("LLM_PROVIDER", "openai"),
+        "model": getattr(_thread_local, "llm_model", None) or os.getenv("LLM_MODEL", ""),
+    }
+
+def set_llm_config(provider=None, model=None):
+    """Set LLM config for current thread/request."""
+    if provider:
+        _thread_local.llm_provider = provider
+    if model:
+        _thread_local.llm_model = model
+
+# Legacy env var access for backwards compatibility
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 
@@ -52,20 +71,27 @@ LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 
 def get_llm():
     """Return the configured LLM for critique."""
-    model = LLM_MODEL or PROVIDER_DEFAULTS.get(LLM_PROVIDER, "gpt-4o-mini")
+    config = get_llm_config()
+    provider = config["provider"]
+    model = config["model"] or PROVIDER_DEFAULTS.get(provider, "gpt-4o-mini")
 
-    if LLM_PROVIDER == "anthropic":
+    if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=model, temperature=0.1, timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
-    elif LLM_PROVIDER == "mistral":
+    elif provider == "mistral":
         from langchain_mistralai import ChatMistralAI
         return ChatMistralAI(model=model, temperature=0.1, timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
-    elif LLM_PROVIDER == "gemini":
+    elif provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model=model, temperature=0.1, timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
     else:
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, temperature=0.1, request_timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
+        # OpenAI uses 'timeout' parameter in newer versions
+        try:
+            return ChatOpenAI(model=model, temperature=0.1, timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
+        except TypeError:
+            # Fallback for older versions that use request_timeout
+            return ChatOpenAI(model=model, temperature=0.1, request_timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
 
 
 def format_recommendations_for_critique(tracks: List[Dict[str, Any]]) -> str:
