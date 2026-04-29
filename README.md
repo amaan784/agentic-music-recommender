@@ -83,7 +83,7 @@ python data/prepare_data.py
 
 ### 5. Run the app
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 ### 6. Run tests
