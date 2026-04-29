@@ -247,7 +247,11 @@ def finalize_node(state: RecommenderState) -> dict:
         recs = state.get("scored_recommendations", [])
         prefs = state.get("user_preferences", {})
 
-        use_llm = os.getenv("USE_LLM_EXPLANATIONS", "false").lower() == "true"
+        # Check thread-local config to determine if LLM should be used
+        from confidence.explainer import get_llm_config
+        llm_config = get_llm_config()
+        # LLM is disabled if provider is "disabled" or use_llm_explanations wasn't set
+        use_llm = llm_config["provider"] != "disabled" and os.getenv("USE_LLM_EXPLANATIONS", "false").lower() == "true"
         final = explain_recommendations(recs, prefs, use_llm=use_llm)
 
     decision_log = state.get("decision_log", [])
