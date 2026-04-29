@@ -1,6 +1,9 @@
 """Streamlit UI for SoundScout AI."""
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 import pandas as pd
 from agent.graph import run_recommendation_pipeline
