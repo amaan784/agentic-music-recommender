@@ -415,7 +415,6 @@ if run_button:
         os.environ["LLM_PROVIDER"] = "disabled"
 
     pipeline_container = st.empty()
-    intermediate_container = st.container()
 
     with pipeline_container.container():
         st.markdown("### 🤖 Agent Pipeline Execution")
@@ -502,111 +501,15 @@ if run_button:
     # Run pipeline
     result = run_recommendation_pipeline(user_preferences)
 
+    # Clear the pipeline visualization
+    pipeline_container.empty()
+
     if skip_llm:
         os.environ["LLM_PROVIDER"] = llm_provider
 
     # Extract intermediate data from decision log
     decision_log = result.get("decision_log", [])
     step_data = {entry.get("step", ""): entry for entry in decision_log}
-
-    with intermediate_container:
-        st.markdown("---")
-        st.markdown("### 🔍 Open Process: What Happened Behind the Scenes")
-
-        # Build Query section
-        with st.expander("📋 1. Query Construction", expanded=True):
-            query_step = step_data.get("build_query", {})
-            query_text = query_step.get("output_summary", "").replace("Query: '", "").replace("'", "")
-            st.markdown("**Your preferences were converted to this search query:**")
-            st.markdown(f'<div class="query-box">{query_text}</div>', unsafe_allow_html=True)
-            st.caption(f"Time: {query_step.get('duration_ms', 0):.0f}ms")
-
-        # Retrieval section
-        with st.expander("🔎 2. RAG Vector Retrieval", expanded=True):
-            retrieve_step = step_data.get("retrieve", {})
-            st.markdown("**Vector search in ChromaDB:**")
-            retrieve_summary = retrieve_step.get("output_summary", "")
-            st.info(retrieve_summary)
-
-            # Show sample candidates if available
-            if "candidates" in str(retrieve_summary).lower():
-                num_candidates = int(''.join(filter(str.isdigit, retrieve_summary.split("candidates")[1].split(",")[0])) if "candidates" in retrieve_summary else 30
-                st.markdown(f"**Retrieved {num_candidates} candidate tracks** from 114K song catalog")
-                st.caption(f"Search time: {retrieve_step.get('duration_ms', 0):.0f}ms")
-
-        # Guardrails section
-        with st.expander("🛡️ 3. Quality Guardrails", expanded=True):
-            guardrail_step = step_data.get("apply_guardrails", {})
-            guardrail_summary = guardrail_step.get("output_summary", "")
-            st.markdown("**Filtering applied:**")
-            st.markdown(f'<div class="guardrail-result">✓ {guardrail_summary}</div>', unsafe_allow_html=True)
-            notes = guardrail_step.get("notes", "")
-            if notes and notes != "All guardrails passed":
-                st.warning(f"⚠️ {notes}")
-            st.caption(f"Filter time: {guardrail_step.get('duration_ms', 0):.0f}ms")
-
-        # Scoring section
-        with st.expander("📊 4. Audio Feature Scoring", expanded=True):
-            score_step = step_data.get("score", {})
-            st.markdown("**Scoring method:** Cosine similarity between user preference vector and track audio features")
-            st.markdown(f"**{score_step.get('output_summary', '')}**")
-            st.caption(f"Scoring time: {score_step.get('duration_ms', 0):.0f}ms")
-
-        # Bias detection section
-        with st.expander("⚖️ 5. Bias Detection Analysis", expanded=True):
-            bias_step = step_data.get("check_bias", {})
-            bias_summary = bias_step.get("output_summary", "")
-            bias_notes = bias_step.get("notes", "")
-            st.markdown(f"**{bias_summary}**")
-            if bias_notes:
-                if "No bias" in bias_notes or "No flags" in bias_notes:
-                    st.success(f"✓ {bias_notes}")
-                else:
-                    st.warning(f"⚠️ {bias_notes}")
-            st.caption(f"Analysis time: {bias_step.get('duration_ms', 0):.0f}ms")
-
-        # Confidence section
-        with st.expander("🎯 6. Confidence Scoring", expanded=True):
-            conf_step = step_data.get("compute_confidence", {})
-            st.markdown(f"**{conf_step.get('output_summary', '')}**")
-            st.markdown("Signals used:")
-            st.markdown("- Feature match: Audio alignment with preferences")
-            st.markdown("- Retrieval relevance: Vector search similarity")
-            st.markdown("- Score margin: Gap from next-best tracks")
-            st.markdown("- Diversity contribution: Uniqueness in set")
-            st.caption(f"Confidence computation: {conf_step.get('duration_ms', 0):.0f}ms")
-
-        # Critique section
-        with st.expander("🤖 7. LLM Self-Critique", expanded=True):
-            critique_step = step_data.get("critique", {})
-            critique_summary = critique_step.get("output_summary", "")
-            st.markdown(f"**{critique_summary}**")
-
-            critique_notes = critique_step.get("notes", "")
-            if critique_notes:
-                st.markdown(f"*Assessment: {critique_notes}*")
-
-            if "should_revise: True" in critique_summary or "Should revise: true" in critique_summary:
-                st.warning("🔄 Agent decided to revise recommendations based on critique")
-            else:
-                st.success("✓ Agent approved recommendations for finalization")
-
-            st.caption(f"Critique time: {critique_step.get('duration_ms', 0):.0f}ms")
-
-        # Revisions section (if any)
-        revision_count = result.get("revision_count", 0)
-        if revision_count > 0:
-            with st.expander("🔄 Revision Loop", expanded=True):
-                st.markdown(f"<span class='revision-badge'>🔄 {revision_count} Revision(s) Made</span>", unsafe_allow_html=True)
-                st.markdown("The agent detected issues and re-ran the pipeline with adjusted weights:")
-
-                # Show revision steps
-                revision_steps = [entry for entry in decision_log if entry.get("step") == "revise_weights"]
-                for i, rev_step in enumerate(revision_steps, 1):
-                    st.markdown(f"**Revision #{i}:** {rev_step.get('output_summary', '')}")
-                    st.caption(f"Adjustment time: {rev_step.get('duration_ms', 0):.0f}ms")
-
-        st.markdown("---")
 
     if result.get("error"):
         st.error(f"Pipeline error: {result['error']}")
@@ -615,128 +518,238 @@ if run_button:
         revision_count = result.get("revision_count", 0)
 
         if revision_count > 0:
-            st.info(f"The agent self-critiqued and revised its recommendations {revision_count} time(s) using {llm_provider.title()} {llm_model}.")
+            st.info(f"🔄 The agent self-critiqued and revised its recommendations {revision_count} time(s) using {llm_provider.title()} {llm_model}.")
 
-        st.markdown(f"### Your Top {len(final_recs)} Tracks")
+        # Create tabs for organized display
+        tab_recs, tab_process, tab_bias, tab_log = st.tabs([
+            "🎵 Recommendations",
+            "🔍 Open Process",
+            "⚖️ Bias Analysis",
+            "📊 Agent Log"
+        ])
 
-        for i, rec in enumerate(final_recs, 1):
-            meta = rec.get("metadata", {})
-            conf = rec.get("confidence", {})
-            overall_conf = conf.get("overall_confidence", 0)
-            components = conf.get("components", {})
-            explanation = rec.get("explanation", "")
+        # Tab 1: Recommendations
+        with tab_recs:
+            st.markdown(f"### Your Top {len(final_recs)} Tracks")
 
-            conf_cls = _conf_class(overall_conf)
-            conf_lbl = _conf_label(overall_conf)
+            for i, rec in enumerate(final_recs, 1):
+                meta = rec.get("metadata", {})
+                conf = rec.get("confidence", {})
+                overall_conf = conf.get("overall_confidence", 0)
+                components = conf.get("components", {})
+                explanation = rec.get("explanation", "")
 
-            card_html = f"""
-            <div class="song-card">
-                <div class="song-title">{i}. {meta.get('track_name', 'Unknown')}</div>
-                <div class="song-artist">{meta.get('artists', 'Unknown')}</div>
-                <div class="song-meta">
-                    {meta.get('track_genre', 'unknown').title()} &middot;
-                    {meta.get('album_name', '')} &middot;
-                    Popularity: {meta.get('popularity', 'N/A')} &middot;
-                    Confidence: <span class="{conf_cls}">{overall_conf:.0%} ({conf_lbl})</span>
-                </div>
-            """
-            if explanation:
-                card_html += f'<div class="explanation-box">{explanation}</div>'
-            card_html += "</div>"
+                conf_cls = _conf_class(overall_conf)
+                conf_lbl = _conf_label(overall_conf)
 
-            st.markdown(card_html, unsafe_allow_html=True)
+                card_html = f"""
+                <div class="song-card">
+                    <div class="song-title">{i}. {meta.get('track_name', 'Unknown')}</div>
+                    <div class="song-artist">{meta.get('artists', 'Unknown')}</div>
+                    <div class="song-meta">
+                        {meta.get('track_genre', 'unknown').title()} &middot;
+                        {meta.get('album_name', '')} &middot;
+                        Popularity: {meta.get('popularity', 'N/A')} &middot;
+                        Confidence: <span class="{conf_cls}">{overall_conf:.0%} ({conf_lbl})</span>
+                    </div>
+                """
+                if explanation:
+                    card_html += f'<div class="explanation-box">{explanation}</div>'
+                card_html += "</div>"
 
-            with st.expander(f"Details for {meta.get('track_name', 'Track')}"):
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.markdown("**Audio Profile**")
-                    for feat_name, feat_key in [("Energy", "energy"), ("Valence (Happiness)", "valence"), ("Danceability", "danceability"), ("Tempo", "tempo"), ("Acousticness", "acousticness")]:
-                        val = float(meta.get(feat_key, 0))
-                        st.markdown(_feature_bar(feat_name, val), unsafe_allow_html=True)
+                st.markdown(card_html, unsafe_allow_html=True)
 
-                with col_b:
-                    st.markdown("**Why this confidence score?**")
-                    for comp_name, comp_key in [("Feature Match", "feature_match"), ("Retrieval Relevance", "retrieval_relevance"), ("Score Margin", "margin"), ("Diversity Boost", "bias_contribution")]:
-                        val = components.get(comp_key, 0)
-                        st.markdown(_feature_bar(comp_name, val), unsafe_allow_html=True)
+                with st.expander(f"Details for {meta.get('track_name', 'Track')}"):
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.markdown("**Audio Profile**")
+                        for feat_name, feat_key in [("Energy", "energy"), ("Valence (Happiness)", "valence"), ("Danceability", "danceability"), ("Tempo", "tempo"), ("Acousticness", "acousticness")]:
+                            val = float(meta.get(feat_key, 0))
+                            st.markdown(_feature_bar(feat_name, val), unsafe_allow_html=True)
 
-        st.markdown("---")
+                    with col_b:
+                        st.markdown("**Why this confidence score?**")
+                        for comp_name, comp_key in [("Feature Match", "feature_match"), ("Retrieval Relevance", "retrieval_relevance"), ("Score Margin", "margin"), ("Diversity Boost", "bias_contribution")]:
+                            val = components.get(comp_key, 0)
+                            st.markdown(_feature_bar(comp_name, val), unsafe_allow_html=True)
 
-        st.markdown("### How Fair Are These Results?")
-        bias_report = result.get("bias_report", {})
+        # Tab 2: Open Process
+        with tab_process:
+            st.markdown("### 🤖 How the Agent Built These Recommendations")
+            st.caption("Step-by-step breakdown of the RAG and agentic pipeline")
 
-        if bias_report:
-            try:
-                catalog_df = pd.read_csv(
-                    os.path.join(os.path.dirname(__file__), "data", "tracks_clean.csv")
-                )
-                catalog = catalog_df.sample(min(1000, len(catalog_df))).to_dict("records")
-            except Exception:
-                catalog = []
+            # Build Query section
+            with st.expander("📋 Step 1: Query Construction", expanded=True):
+                query_step = step_data.get("build_query", {})
+                query_text = query_step.get("output_summary", "").replace("Query: '", "").replace("'", "")
+                st.markdown("**Your preferences were converted to this natural language query:**")
+                st.markdown(f'<div class="query-box">{query_text}</div>', unsafe_allow_html=True)
+                st.caption(f"Processing time: {query_step.get('duration_ms', 0):.0f}ms")
 
-            report = generate_report(final_recs, catalog)
-            display = format_report_for_display(report)
+            # Retrieval section
+            with st.expander("🔎 Step 2: RAG Vector Retrieval", expanded=True):
+                retrieve_step = step_data.get("retrieve", {})
+                st.markdown("**Vector search in ChromaDB:**")
+                retrieve_summary = retrieve_step.get("output_summary", "")
+                st.info(retrieve_summary)
 
-            quality = display["summary"].get("Overall Quality", "Unknown")
-            quality_colors = {"Excellent": "#4ade80", "Good": "#86efac", "Fair": "#facc15", "Poor": "#f87171"}
-            q_color = quality_colors.get(quality, "#aaa")
+                if "candidates" in str(retrieve_summary).lower():
+                    try:
+                        num_candidates = int(''.join(filter(str.isdigit, retrieve_summary.split("candidates")[1].split(",")[0])))
+                    except (IndexError, ValueError):
+                        num_candidates = 30
+                    st.markdown(f"**Retrieved {num_candidates} candidate tracks** from 114K song catalog using HuggingFace embeddings (all-MiniLM-L6-v2)")
+                st.caption(f"Search time: {retrieve_step.get('duration_ms', 0):.0f}ms")
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{q_color}">{quality}</div><div class="stat-label">Overall Quality</div></div>', unsafe_allow_html=True)
-            col2.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Diversity Score", "0")}</div><div class="stat-label">Genre Diversity</div></div>', unsafe_allow_html=True)
-            col3.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Novelty Score", "0")}</div><div class="stat-label">Novelty</div></div>', unsafe_allow_html=True)
-            col4.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Bias Flags", "0")}</div><div class="stat-label">Bias Flags</div></div>', unsafe_allow_html=True)
+            # Guardrails section
+            with st.expander("🛡️ Step 3: Quality Guardrails", expanded=True):
+                guardrail_step = step_data.get("apply_guardrails", {})
+                guardrail_summary = guardrail_step.get("output_summary", "")
+                st.markdown("**Filtering applied to remove low-quality tracks:**")
+                st.markdown(f'<div class="guardrail-result">✓ {guardrail_summary}</div>', unsafe_allow_html=True)
+                notes = guardrail_step.get("notes", "")
+                if notes and notes != "All guardrails passed":
+                    st.warning(f"⚠️ {notes}")
+                st.caption(f"Filter time: {guardrail_step.get('duration_ms', 0):.0f}ms")
 
-            st.markdown("")
-            for check in display.get("bias_details", []):
-                status = check.get("Status", "")
-                is_ok = status == "OK"
-                icon_cls = "bias-card-icon-ok" if is_ok else "bias-card-icon-flag"
-                icon_text = "OK" if is_ok else "!!"
-                name = check.get("Check", "").replace("_", " ").title()
-                detail = check.get("Detail", "")
-                st.markdown(
-                    f'<div class="bias-card">'
-                    f'<div class="bias-card-icon {icon_cls}">{icon_text}</div>'
-                    f'<div><div class="bias-card-name">{name}</div>'
-                    f'<div class="bias-card-detail">{detail}</div></div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+            # Scoring section
+            with st.expander("📊 Step 4: Audio Feature Scoring", expanded=True):
+                score_step = step_data.get("score", {})
+                st.markdown("**Ranking method:** Cosine similarity between user preference vector and track audio features")
+                st.markdown(f"**Result:** {score_step.get('output_summary', '')}")
+                st.caption(f"Scoring time: {score_step.get('duration_ms', 0):.0f}ms")
 
-        st.markdown("---")
+            # Bias detection section
+            with st.expander("⚖️ Step 5: Bias Detection Analysis", expanded=True):
+                bias_step = step_data.get("check_bias", {})
+                bias_summary = bias_step.get("output_summary", "")
+                bias_notes = bias_step.get("notes", "")
+                st.markdown(f"**{bias_summary}**")
+                if bias_notes:
+                    if "No bias" in bias_notes or "No flags" in bias_notes:
+                        st.success(f"✓ {bias_notes}")
+                    else:
+                        st.warning(f"⚠️ {bias_notes}")
+                st.caption(f"Analysis time: {bias_step.get('duration_ms', 0):.0f}ms")
 
-        st.markdown("### Agent Decision Log")
-        decision_log = result.get("decision_log", [])
+            # Confidence section
+            with st.expander("🎯 Step 6: Confidence Scoring", expanded=True):
+                conf_step = step_data.get("compute_confidence", {})
+                st.markdown(f"**{conf_step.get('output_summary', '')}**")
+                st.markdown("**Signals combined:**")
+                st.markdown("- Feature match: Audio alignment with preferences")
+                st.markdown("- Retrieval relevance: Vector search similarity")
+                st.markdown("- Score margin: Gap from next-best tracks")
+                st.markdown("- Diversity contribution: Uniqueness in recommendation set")
+                st.caption(f"Computation time: {conf_step.get('duration_ms', 0):.0f}ms")
 
-        if decision_log:
-            st.caption(f"{len(decision_log)} steps | {revision_count} revision(s)")
+            # Critique section
+            with st.expander("🤖 Step 7: LLM Self-Critique", expanded=True):
+                critique_step = step_data.get("critique", {})
+                critique_summary = critique_step.get("output_summary", "")
+                st.markdown(f"**{critique_summary}**")
 
-            step_icons = {
-                "parse_input": "1", "build_query": "2", "retrieve": "3",
-                "apply_guardrails": "4", "score": "5", "check_bias": "6",
-                "compute_confidence": "7", "critique": "8",
-                "revise_weights": "R", "finalize": "F", "error": "X",
-            }
-            for entry in decision_log:
-                step = entry.get("step", "")
-                dur = entry.get("duration_ms", 0)
-                out = entry.get("output_summary", "")
-                notes = entry.get("notes", "")
-                icon = step_icons.get(step, "?")
-                step_label = step.replace("_", " ").title()
-                notes_html = f'<div class="step-notes">{notes}</div>' if notes else ""
-                st.markdown(
-                    f'<div class="step-card">'
-                    f'<div class="step-header">'
-                    f'<span class="step-name">Step {icon}: {step_label}</span>'
-                    f'<span class="step-time">{dur:.0f}ms</span>'
-                    f'</div>'
-                    f'<div class="step-output">{out}</div>'
-                    f'{notes_html}'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+                critique_notes = critique_step.get("notes", "")
+                if critique_notes:
+                    st.markdown(f"*Assessment: {critique_notes}*")
+
+                if "should_revise: True" in critique_summary or "Should revise: true" in critique_summary:
+                    st.warning("🔄 Agent detected issues and triggered revision loop")
+                else:
+                    st.success("✓ Agent approved recommendations for finalization")
+
+                st.caption(f"Critique time: {critique_step.get('duration_ms', 0):.0f}ms")
+
+            # Revisions section (if any)
+            if revision_count > 0:
+                with st.expander("🔄 Revision Loop", expanded=True):
+                    st.markdown(f"<span class='revision-badge'>🔄 {revision_count} Self-Revision(s)</span>", unsafe_allow_html=True)
+                    st.markdown("The agent re-ran the pipeline with adjusted weights:")
+                    revision_steps = [entry for entry in decision_log if entry.get("step") == "revise_weights"]
+                    for i, rev_step in enumerate(revision_steps, 1):
+                        st.markdown(f"**Revision #{i}:** {rev_step.get('output_summary', '')}")
+                        st.caption(f"Adjustment time: {rev_step.get('duration_ms', 0):.0f}ms")
+
+        # Tab 3: Bias Analysis
+        with tab_bias:
+            st.markdown("### How Fair Are These Results?")
+            bias_report = result.get("bias_report", {})
+
+            if bias_report:
+                try:
+                    catalog_df = pd.read_csv(
+                        os.path.join(os.path.dirname(__file__), "data", "tracks_clean.csv")
+                    )
+                    catalog = catalog_df.sample(min(1000, len(catalog_df))).to_dict("records")
+                except Exception:
+                    catalog = []
+
+                report = generate_report(final_recs, catalog)
+                display = format_report_for_display(report)
+
+                quality = display["summary"].get("Overall Quality", "Unknown")
+                quality_colors = {"Excellent": "#4ade80", "Good": "#86efac", "Fair": "#facc15", "Poor": "#f87171"}
+                q_color = quality_colors.get(quality, "#aaa")
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{q_color}">{quality}</div><div class="stat-label">Overall Quality</div></div>', unsafe_allow_html=True)
+                col2.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Diversity Score", "0")}</div><div class="stat-label">Genre Diversity</div></div>', unsafe_allow_html=True)
+                col3.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Novelty Score", "0")}</div><div class="stat-label">Novelty</div></div>', unsafe_allow_html=True)
+                col4.markdown(f'<div class="stat-card"><div class="stat-number">{display["summary"].get("Bias Flags", "0")}</div><div class="stat-label">Bias Flags</div></div>', unsafe_allow_html=True)
+
+                st.markdown("")
+                st.markdown("#### Detailed Bias Checks")
+                for check in display.get("bias_details", []):
+                    status = check.get("Status", "")
+                    is_ok = status == "OK"
+                    icon_cls = "bias-card-icon-ok" if is_ok else "bias-card-icon-flag"
+                    icon_text = "OK" if is_ok else "!!"
+                    name = check.get("Check", "").replace("_", " ").title()
+                    detail = check.get("Detail", "")
+                    st.markdown(
+                        f'<div class="bias-card">'
+                        f'<div class="bias-card-icon {icon_cls}">{icon_text}</div>'
+                        f'<div><div class="bias-card-name">{name}</div>'
+                        f'<div class="bias-card-detail">{detail}</div></div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+        # Tab 4: Agent Log
+        with tab_log:
+            st.markdown("### Complete Agent Decision Timeline")
+            st.caption(f"{len(decision_log)} steps executed | {revision_count} revision(s)")
+
+            if decision_log:
+                step_icons = {
+                    "parse_input": "1", "build_query": "2", "retrieve": "3",
+                    "apply_guardrails": "4", "score": "5", "check_bias": "6",
+                    "compute_confidence": "7", "critique": "8",
+                    "revise_weights": "🔄", "finalize": "✓", "error": "✗",
+                }
+
+                total_time = sum(entry.get("duration_ms", 0) for entry in decision_log)
+                st.metric("Total Pipeline Time", f"{total_time:.0f}ms")
+
+                for entry in decision_log:
+                    step = entry.get("step", "")
+                    dur = entry.get("duration_ms", 0)
+                    out = entry.get("output_summary", "")
+                    notes = entry.get("notes", "")
+                    icon = step_icons.get(step, "•")
+                    step_label = step.replace("_", " ").title()
+                    notes_html = f'<div class="step-notes">{notes}</div>' if notes else ""
+                    st.markdown(
+                        f'<div class="step-card">'
+                        f'<div class="step-header">'
+                        f'<span class="step-name">{icon} {step_label}</span>'
+                        f'<span class="step-time">{dur:.0f}ms</span>'
+                        f'</div>'
+                        f'<div class="step-output">{out}</div>'
+                        f'{notes_html}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
 else:
     try:
